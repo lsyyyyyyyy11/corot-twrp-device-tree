@@ -8,14 +8,13 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cstring>
 #include <ctime>
-#include <iostream>
-#include <map>
+#include <memory>
+#include <string>
 #include <thread>
 
 #include <android-base/file.h>
-#include <android-base/strings.h>
-#include <android-base/unique_fd.h>
 #include <libdm/dm.h>
 #include <log/log.h>
 
@@ -89,7 +88,9 @@ int create_pl_path(void) {
   int start_blk, blk_cnt, fd;
   off_t pl_size;
   char header_desc[5] = {0};
-  std::string path_a, path_b, link_path, dev_path, link;
+  // path_a/path_b are the only outputs used below; link_path/dev_path/link
+  // were never referenced (they shadowed locals of create_pl_link()).
+  std::string path_a, path_b;
   DeviceMapper& dm = DeviceMapper::Instance();
   ssize_t sz = 0;
 
@@ -149,11 +150,20 @@ int create_pl_path(void) {
   blk_cnt -= start_blk;
   
   if (create_dm(UFS_PL_A, NAME_PL_A, &path_a, start_blk, blk_cnt) != 0) {
+    // Stale symlinks may still point at a dm device removed by a previous run;
+    // drop them so consumers never resolve a dangling link.
+    android::base::RemoveFileIfExists(LINK_PL_A);
+    android::base::RemoveFileIfExists(LINK1_PL_A);
     return 1;
   }
   if (create_dm(UFS_PL_B, NAME_PL_B, &path_b, start_blk, blk_cnt) != 0) {
-    if (dm.DeleteDevice(NAME_PL_A))
+    // DeleteDevice() returns true on success: log only when it fails.
+    if (!dm.DeleteDevice(NAME_PL_A))
       ALOGE("Cannot delete device %s (%s)", NAME_PL_A, strerror(errno));
+    android::base::RemoveFileIfExists(LINK_PL_A);
+    android::base::RemoveFileIfExists(LINK1_PL_A);
+    android::base::RemoveFileIfExists(LINK_PL_B);
+    android::base::RemoveFileIfExists(LINK1_PL_B);
     return 1;
   }
   

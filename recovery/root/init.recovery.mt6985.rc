@@ -1,12 +1,25 @@
+# NOTE: /init.recovery.usb.rc is deliberately NOT imported here. That file is
+# the stock gadget (peripheral-mode) init script: its 'on fs' block builds the
+# configfs usb_gadget/g1, and its ro.boot.usbcontroller trigger writes
+# "peripheral" into the DWC3 core mode, permanently pinning the Type-C port to
+# device role. TWRP's own default USB init is also excluded
+# (TW_EXCLUDE_DEFAULT_USB_INIT := true in BoardConfig.mk), so with no import
+# nothing forces peripheral role at runtime and the MTK dual-role controller
+# (dual_role_usb + extcon-mtk-usb, loaded from /lib/modules) can switch to
+# host/xHCI when an OTG cable is attached -- which is what makes mounting USB
+# flash drives (OTG) work. ADB/sideload keeps working regardless because the
+# bootloader already enumerates the gadget before handing off to recovery.
 import /keymint.service.mitee.rc
 import /tee-supplicant.rc
 import /miteelog.rc
 import /xiaomi.haptic.hal.rc
 
 on init
-    setprop sys.usb.configfs 1
-    setprop sys.usb.controller "11201000.usb0"
-    setprop sys.usb.ffs.aio_compat 1
+    # sys.usb.configfs / sys.usb.controller are deliberately NOT set here:
+    # they only drive the gadget-mode blocks in the (non-imported) usb rc
+    # above, and leaving them unset avoids any late-triggered
+    # 'write .../mode peripheral' that would yank the controller back out of
+    # host (OTG) mode once a USB drive is plugged in.
     export LD_LIBRARY_PATH /system/lib64:/vendor/lib64:/vendor/lib64/hw
     setprop crypto.ready 1
 
@@ -62,13 +75,34 @@ on post-fs
     symlink /dev/block/platform/bootdevice/by-name/preloader_a /dev/block/by-name/preloader_ufs_a
     symlink /dev/block/platform/bootdevice/by-name/preloader_b /dev/block/by-name/preloader_ufs_b
 
-    # to access F2FS sysfs on dm-<num> directly
-    symlink /sys/fs/mifs/${dev.mnt.dev.data} /dev/sys/fs/by-name/userdata
-    symlink /sys/fs/f2fs/${dev.mnt.dev.data} /dev/sys/fs/by-name/userdata
+    # NOTE: the stock 'symlink /sys/fs/{mifs,f2fs}/${dev.mnt.dev.data}
+    # /dev/sys/fs/by-name/userdata' pair was removed. Two independent reasons:
+    #  1) ${dev.mnt.dev.data} is only published by fs_mgr's *late* mount pass
+    #     (system/core/fs_mgr/fs_mgr.cpp SetDevNodesProp -> property_iterate),
+    #     and recovery init never runs that pass: the fstab.mt6985 /data entry
+    #     is flagged 'latemount' and TWRP mounts /data itself via Data::Mount()
+    #     (bootable/recovery/recovery.cpp), which does not set the prop. At
+    #     post-fs time the substitution yields an empty string, so both lines
+    #     created dangling symlinks pointing at /sys/fs/mifs/ and
+    #     /sys/fs/f2fs/.
+    #  2) they also overwrote each other (same destination path - the f2fs one
+    #     always clobbered the mifs one).
+    # Nothing in this tree consumes /dev/sys/fs/by-name/userdata; if a future
+    # tool needs F2FS stats it must create the link AFTER /data is mounted
+    # (e.g. 'on property:twrp.decrypt.done=true'), once the dm number is known.
 
     symlink /dev/block/platform/bootdevice /dev/block/bootdevice
 
-    exec u:r:update_engine:s0 root root -- /system/bin/mtk_plpath_utils
+    # Run mtk_plpath_utils exactly ONCE per boot. The previous form combined an
+    # inline 'exec' with 'start mtk.plpath.utils.link'; both invoke the same
+    # binary concurrently, and its create_dm()/create_pl_link() sequence is not
+    # atomic (two racers can both see "no existing device" and then fight over
+    # renaming the identical DM target / pl path links). The stock Android
+    # normal-mode init uses only the service+trigger (see system/core's
+    # usage of the mtk_plpath_utils service), so keep that pattern and drop the
+    # blocking 'exec'. Note the 'exec' line also had a SELinux-context mismatch:
+    # it ran the binary as u:r:update_engine:s0 while the recovery sepolicy in
+    # this tree labels it for recovery only.
     start mtk.plpath.utils.link
 
 service mtk.plpath.utils.link /system/bin/mtk_plpath_utils

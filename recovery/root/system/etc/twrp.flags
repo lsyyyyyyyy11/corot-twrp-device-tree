@@ -89,4 +89,15 @@
 /seccfg                            emmc                      /dev/block/by-name/seccfg                             flags=display="Secure Config [ seccfg ]";backup=1;flashimg=1
 
 # Removable storage
-/usb_otg            auto      /dev/block/sdd1                                                       flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
+# NOTE: the hardcoded /dev/block/sdd1 was wrong and made OTG unusable: on this
+# UFS device sda..sdl are the boot/LU* hardware LUNs (sdc = pl_a/pl_b dm target)
+# and by-name partitions start at sdm — a USB flash drive never enumerates as
+# sdd1, so TWRP always failed to mount "usb_otg". The stock fstab.mt6985 instead
+# matches the xHCI host controller's sysfs path; vold creates the stable symlink
+# /dev/block/usbotg for any device whose parent path matches below, and TWRP
+# resolves that symlink at mount time. Pattern taken verbatim from
+# first_stage_ramdisk/fstab.mt6985 (lines 88-90); keep them in sync.
+/usb_otg            auto      /devices/platform/usb_xhci*                                          flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
+/usb_otg            auto      /devices/platform/soc/11201000.usb0/11200000.xhci*                   flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
+/usb_otg            auto      /devices/platform/soc/11211000.usb1/11210000.xhci*                   flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
+/usb_otg            auto      /dev/block/usbotg                                                    flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8

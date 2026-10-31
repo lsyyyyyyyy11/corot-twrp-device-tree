@@ -8,14 +8,13 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cstring>
 #include <ctime>
-#include <iostream>
-#include <map>
+#include <memory>
+#include <string>
 #include <thread>
 
 #include <android-base/file.h>
-#include <android-base/strings.h>
-#include <android-base/unique_fd.h>
 #include <libdm/dm.h>
 #include <log/log.h>
 
@@ -52,6 +51,11 @@ static int create_dm(const char* device, const char* name, std::string* path, in
     return 1;
   }
 
+  if (start_blk < 0 || blk_cnt <= 0) {
+    ALOGE("%s invalid arguments: start_blk=%d, blk_cnt=%d\n", __func__, start_blk, blk_cnt);
+    return 1;
+  }
+
   ALOGD("create_dm dev: %s, name %s, start %d, blks %d\n", device, name, start_blk, blk_cnt);
   target = std::make_unique<DmTargetLinear>(0, blk_cnt, device, start_blk);
   if (!table.AddTarget(std::move(target))) {
@@ -83,8 +87,10 @@ static void create_pl_link(std::string link, std::string devpath) {
 int create_pl_path(void) {
   int start_blk, blk_cnt, fd;
   off_t pl_size;
-  char header_desc[5];
-  std::string path_a, path_b, link_path, dev_path, link;
+  char header_desc[5] = {0};
+  // path_a/path_b are the only outputs used below; link_path/dev_path/link
+  // were never referenced (they shadowed locals of create_pl_link()).
+  std::string path_a, path_b;
   DeviceMapper& dm = DeviceMapper::Instance();
   ssize_t sz = 0;
 
@@ -116,7 +122,11 @@ int create_pl_path(void) {
     close(fd);
     return 1;
   }
-  if (sz != sizeof(header_desc)) ALOGE("%s size is not header_desc\n", __func__);
+  if (sz != sizeof(header_desc)) {
+    ALOGE("%s short read: got %zd bytes, expected %zu\n", __func__, sz, sizeof(header_desc));
+    close(fd);
+    return 1;
+  }
 
   close(fd);
 
@@ -131,14 +141,29 @@ int create_pl_path(void) {
     return 1;
   }
 
+  if (blk_cnt <= start_blk) {
+    ALOGE("Device too small: blk_cnt=%d <= start_blk=%d (pl_size=%lld)", blk_cnt, start_blk,
+          (long long)pl_size);
+    return 1;
+  }
+
   blk_cnt -= start_blk;
   
   if (create_dm(UFS_PL_A, NAME_PL_A, &path_a, start_blk, blk_cnt) != 0) {
+    // Stale symlinks may still point at a dm device removed by a previous run;
+    // drop them so consumers never resolve a dangling link.
+    android::base::RemoveFileIfExists(LINK_PL_A);
+    android::base::RemoveFileIfExists(LINK1_PL_A);
     return 1;
   }
   if (create_dm(UFS_PL_B, NAME_PL_B, &path_b, start_blk, blk_cnt) != 0) {
-    if (dm.DeleteDevice(UFS_PL_A))
+    // DeleteDevice() returns true on success: log only when it fails.
+    if (!dm.DeleteDevice(NAME_PL_A))
       ALOGE("Cannot delete device %s (%s)", NAME_PL_A, strerror(errno));
+    android::base::RemoveFileIfExists(LINK_PL_A);
+    android::base::RemoveFileIfExists(LINK1_PL_A);
+    android::base::RemoveFileIfExists(LINK_PL_B);
+    android::base::RemoveFileIfExists(LINK1_PL_B);
     return 1;
   }
   

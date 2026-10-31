@@ -1,12 +1,25 @@
+# NOTE: /init.recovery.usb.rc is deliberately NOT imported here. That file is
+# the stock gadget (peripheral-mode) init script: its 'on fs' block builds the
+# configfs usb_gadget/g1, and its ro.boot.usbcontroller trigger writes
+# "peripheral" into the DWC3 core mode, permanently pinning the Type-C port to
+# device role. TWRP's own default USB init is also excluded
+# (TW_EXCLUDE_DEFAULT_USB_INIT := true in BoardConfig.mk), so with no import
+# nothing forces peripheral role at runtime and the MTK dual-role controller
+# (dual_role_usb + extcon-mtk-usb, loaded from /lib/modules) can switch to
+# host/xHCI when an OTG cable is attached -- which is what makes mounting USB
+# flash drives (OTG) work. ADB/sideload keeps working regardless because the
+# bootloader already enumerates the gadget before handing off to recovery.
 import /keymint.service.mitee.rc
 import /tee-supplicant.rc
 import /miteelog.rc
 import /xiaomi.haptic.hal.rc
 
 on init
-    setprop sys.usb.configfs 1
-    setprop sys.usb.controller "11201000.usb0"
-    setprop sys.usb.ffs.aio_compat 1
+    # sys.usb.configfs / sys.usb.controller are deliberately NOT set here:
+    # they only drive the gadget-mode blocks in the (non-imported) usb rc
+    # above, and leaving them unset avoids any late-triggered
+    # 'write .../mode peripheral' that would yank the controller back out of
+    # host (OTG) mode once a USB drive is plugged in.
     export LD_LIBRARY_PATH /system/lib64:/vendor/lib64:/vendor/lib64/hw
     setprop crypto.ready 1
 

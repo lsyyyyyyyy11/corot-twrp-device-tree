@@ -97,7 +97,15 @@
 # /dev/block/usbotg for any device whose parent path matches below, and TWRP
 # resolves that symlink at mount time. Pattern taken verbatim from
 # first_stage_ramdisk/fstab.mt6985 (lines 88-90); keep them in sync.
-/usb_otg            auto      /devices/platform/usb_xhci*                                          flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
-/usb_otg            auto      /devices/platform/soc/11201000.usb0/11200000.xhci*                   flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
-/usb_otg            auto      /devices/platform/soc/11211000.usb1/11210000.xhci*                   flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
-/usb_otg            auto      /dev/block/usbotg                                                    flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
+# NOTE: the mount point is /usb-otg (hyphen), NOT /usb_otg. TWRP's
+# Data::SetUSBOTGMountPath() derives the expected path from the fstab label
+# "usb-otg" by replacing '-' with '_' (twrpBaseActions.cpp:
+# "/usb-" + usbDriveLabel.substr(4) -> "/usb-otg"), and every consumer
+# (MountUsbStorage, TryDecryptFile, UpdateFileList, IsOutputStoragePath)
+# hardcodes /usb-otg. A table entry keyed /usb_otg can never match that
+# lookup, so mounting an OTG drive fails even when vold sees it. The device
+# fields below stay in sync with first_stage_ramdisk/fstab.mt6985:88-90.
+/usb-otg            auto      /devices/platform/usb_xhci*                                          flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
+/usb-otg            auto      /devices/platform/soc/11201000.usb0/11200000.xhci*                   flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
+/usb-otg            auto      /devices/platform/soc/11211000.usb1/11210000.xhci*                   flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8
+/usb-otg            auto      /dev/block/usbotg                                                    flags=display="External Storage [ usb-otg ]";storage;wipeingui;removable;fsflags=utf8

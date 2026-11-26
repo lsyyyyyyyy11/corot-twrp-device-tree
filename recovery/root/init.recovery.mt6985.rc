@@ -51,7 +51,13 @@ on early-fs
 # is first_stage_mount or is mounted explicitly above.
 
 on post-fs
-    start boot-hal-1-2
+    # NOTE: 'start boot-hal-1-2' was removed. No such service is defined in
+    # any rc file that this recovery actually parses (the only boot HAL
+    # definition lives in the NON-imported init.recovery.usb.rc, and even
+    # there it is a 1.1 variant with a different name). init logs an error
+    # for every start of an unknown service on each trigger; removing the
+    # line keeps post-fs clean without changing behaviour. Slot switching
+    # goes through /misc + the bootloader, which needs no boot HAL here.
     
     # Support A/B feature for EMMC and UFS boot region
     # Wait for the UFS boot LUN the symlink below targets (/dev/block/sda), not
